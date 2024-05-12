@@ -112,8 +112,8 @@ def make_branchlabels(base_dir, taxa):
 
 @app.command()
 def main(base_dir: str = typer.Option(..., '-in', help="Base directory where all subdirectories will be created"),
-         target_taxa: str = typer.Option(..., '-taxa', help="target taxa to select for analysis"),
-         outgroup: str = typer.Option(..., '-outgroup', help="target taxa to select for analysis")):
+         target_taxa: str = typer.Option(..., '-taxa', help="target-taxa selected for analysis"),
+         outgroup: str = typer.Option(..., '-outgroup', help="outgroup-taxa selected for analysis")):
     create_taxa_subdirs(base_dir, target_taxa)
     make_heatmap_itolanno(base_dir, target_taxa, outgroup)
     #hmm_maxscore_df = append_host(base_dir)
