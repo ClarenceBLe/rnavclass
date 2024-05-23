@@ -3,7 +3,8 @@
 ## How to run it
 * Create conda env
 ```
-
+conda env create --name workflow --file=workflow.yaml
+conda activate workflow
 ```
 * Run 01detection.py
 ```
