@@ -6,6 +6,7 @@
 conda env create --name workflow --file=workflow.yaml
 conda activate workflow
 checkv download_database .
+genomad download-database .
 ```
 * Run 01detection.py
 ```
