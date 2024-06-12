@@ -5,6 +5,7 @@
 ```
 conda env create --name workflow --file=workflow.yaml
 conda activate workflow
+checkv download_database .
 ```
 * Run 01detection.py
 ```
