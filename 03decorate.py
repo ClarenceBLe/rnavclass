@@ -30,14 +30,13 @@ def run_process(cmd: str):
 def make_heatmap_itolanno(base_dir, taxa, outgroup):
     hits_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_ALL.csv")
     #taxa_hits_df = hits_df[hits_df['taxonomy'].str.contains(f"{taxa}|{outgroup}")]
-
     #bitscore_df = taxa_hits_df[['protein', 'model', 'score']].pivot_table(index='protein', columns='model', values='score', aggfunc='max').fillna(0)
     bitscore_df = hits_df[['protein', 'model', 'score']].pivot_table(index='protein', columns='model', values='score', aggfunc='max').fillna(0)
     bitscore_filtered_df = bitscore_df.loc[:, (bitscore_df != 0).any(axis=0)]
     bitscore_filtered_df.to_csv(f"{base_dir}/results/treebuild/{taxa}/hmmout_bitscore_matrix.csv", sep='\t')
     bitscore_filtered_filepath = f"{base_dir}/results/treebuild/{taxa}/hmmout_bitscore_matrix.csv"
 
-    bitscore_convert = [f"python {base_dir}/resources/scripts/countmatrix2itol.py {bitscore_filtered_filepath}"]
+    bitscore_convert = [f"python {base_dir}/scripts/countmatrix2itol.py {bitscore_filtered_filepath}"]
     run_process(bitscore_convert)
 
 def append_host(base_dir):
