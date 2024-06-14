@@ -45,7 +45,7 @@ def create_taxa_subdirs(base_dir: str, taxa: str):
 def read_genomad_taxref(base_dir):
     taxonomy_contig_file_ddict = defaultdict(list)
     contig_taxonomy_dict = {}
-    with open(f"{base_dir}/results/stats/genomad_file_contig_taxonomy.tsv",'r') as file:
+    with open(f"{base_dir}/results/genomad/orig/genomad_file_contig_taxonomy.tsv",'r') as file:
         for line in file.readlines():
             if not line.startswith('seq_name'):
                 filename = line.split('\t')[0]
@@ -60,7 +60,7 @@ def read_genomad_taxref(base_dir):
 #____________________________
     
 def run_hmm(base_dir, rdrp_db):
-    for faa in glob.glob(f"{base_dir}/results/genomad/*_annotate/*_proteins.faa"):
+    for faa in glob.glob(f"{base_dir}/results/genomad/orig/*_summary/*_proteins.faa"):
         assembly = faa.split('/')[-1].split('_proteins.faa')[0] 
         hmmsearch_tblout = f"{base_dir}/results/hmm/{assembly}.out"
         hmmsearch = f"hmmsearch --domtblout {hmmsearch_tblout} --noali --cpu 16 {rdrp_db} {faa}"
@@ -171,27 +171,12 @@ def extract_viral_assembly(base_dir, taxa, taxonomy_contig_file_ddict):
             for i in range(len(val)):
                 if val[i][0] in hmm_viral_contigs:
                     filename = val[i][1]
-
-                    fna = f"{base_dir}/orig_assembly/fna/{filename}.fna"
-                    faa = f"{base_dir}/orig_assembly/faa/{filename}_proteins.faa"
+                    fna = f"{base_dir}/orig_assembly/{filename}.fna"
+                    faa = f"{base_dir}/results/assembly/{taxa}/faa/{filename}.faa"
                     fna_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/fna", f"{filename}.fna")
                     faa_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/faa", f"{filename}.faa")
                     extract_viral_fna(fna, fna_file_path)
                     extract_viral_faa(faa, faa_file_path)
-
-'''
-    processed_contigs = []
-    processed_proteins = []
-    for file in glob.glob(f"{base_dir}/results/assembly/{taxa}/fna/*.fna"):
-        filename = file.rsplit('/',1)[-1].split('.fna')[0]
-        fna_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/fna", f"{filename}.fna")
-        extract_viral_fna(file, fna_file_path)
-        
-    for file in glob.glob(f"{base_dir}/results/assembly/{taxa}/faa/*.faa"):
-        filename = file.rsplit('/',1)[-1].split('.faa')[0]
-        faa_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/faa", f"{filename}.faa")
-        extract_viral_faa(file, faa_file_path)
-'''
 
 #_________________________________________
             
@@ -271,21 +256,13 @@ def make_genomestats_itolanno(base_dir, df):
 #________________________________________
 
 def treebuild_phylotree(base_dir, taxa):
-    '''
-    combine_faa = f"cat {base_dir}/results/treebuild/{taxa}/combined.faa {base_dir}/resources/db/treebuild_outgroup/Nidovirales/faa/*.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.faa"
+    
+    combine_faa = f"cat {base_dir}/results/treebuild/{taxa}/combined.faa {base_dir}/outgroup_nidovirales/faa/*.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.faa"
     mafft = f"mafft {base_dir}/results/treebuild/{taxa}/prnav_combined.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft"
     trimal = f"trimal -in {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft -out {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -gt 0.1"
     iqtree = f"iqtree -s {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
     cluster1 = f"python {base_dir}/resources/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster auto {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
     cluster2 = f"python {base_dir}/resources/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster 0.1 {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
-    '''
-
-    #final novel RNAv
-    combine_faa = f"cat /pscratch/sd/c/cle2/rnav_detect/results/viral_assembly/hepelivirales_2/faa/*.faa /pscratch/sd/c/cle2/rnav_detect/resources/db/treebuild_outgroup/Nidovirales/faa/*.faa > /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.faa"
-    mafft = f"mafft /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.faa > /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.mafft"
-    trimal = f"trimal -in /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.mafft -out /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.mafft01 -gt 0.1"
-    iqtree = f"iqtree -s /pscratch/sd/c/cle2/rnav_detect/results/treebuild/hepelivirales_2/prnav_combined.mafft01 -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
-
 
     print(combine_faa)
     run_process(combine_faa)
@@ -295,10 +272,10 @@ def treebuild_phylotree(base_dir, taxa):
     run_process(trimal)
     print(iqtree)
     run_process(iqtree)
-    #print(cluster1)
-    #run_process(cluster1)
-    #print(cluster2)
-    #run_process(cluster2)    
+    print(cluster1)
+    run_process(cluster1)
+    print(cluster2)
+    run_process(cluster2)    
 
 #________________________________________
 
@@ -364,19 +341,19 @@ def main(base_dir: str = typer.Option(..., '-in', help="Base directory where all
          target_taxa: str = typer.Option(..., '-taxa', help="target taxa to select for analysis")):
     
     create_taxa_subdirs(base_dir, target_taxa)
-    #taxonomy_contig_file_ddict, contig_taxonomy_dict = read_genomad_taxref(base_dir)
+    taxonomy_contig_file_ddict, contig_taxonomy_dict = read_genomad_taxref(base_dir)
     #run_hmm(base_dir, rdrp_db)
     #hmm_hits_ddict, hmm_hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
     #hmm_hits_maxscore_df = process_hmmout_maxscore(base_dir, hmm_hits_ddict, contig_taxonomy_dict)
-    #hmm_hits_all_df, hmm_hits_maxscore_df = read_hmm_output(base_dir)
-    #extract_viral_assembly(base_dir, target_taxa, taxonomy_contig_file_ddict)
-    #add_ncbi_taxa(base_dir, target_taxa)
-    #remove_duplicates(base_dir, target_taxa)
-    #make_branchlabel_itolanno(base_dir, hmm_hits_maxscore_df)
-    #hmm_hits_maxscore_df = append_dataframes(base_dir, target_taxa, hmm_hits_maxscore_df)
-    #make_genomestats_itolanno(base_dir, hmm_hits_maxscore_df)
+    hmm_hits_all_df, hmm_hits_maxscore_df = read_hmm_output(base_dir)
+    extract_viral_assembly(base_dir, target_taxa, taxonomy_contig_file_ddict)
+    add_ncbi_taxa(base_dir, target_taxa)
+    remove_duplicates(base_dir, target_taxa)
+    make_branchlabel_itolanno(base_dir, hmm_hits_maxscore_df)
+    hmm_hits_maxscore_df = append_dataframes(base_dir, target_taxa, hmm_hits_maxscore_df)
+    make_genomestats_itolanno(base_dir, hmm_hits_maxscore_df)
     treebuild_phylotree(base_dir, target_taxa)
-    #process_clustrep(base_dir, target_taxa, ['0.1'])
+    process_clustrep(base_dir, target_taxa, ['0.1'])
 
 if __name__ == "__main__":
     app()
