@@ -12,17 +12,17 @@ genomad download-database .
 * Run 01detection.py
 ```
 python 01detection.py -in </path/to/base/directory> -taxa <selected taxa>
-i.e. python 01detection.py -in /pscratch/sd/c/cle2/rnav_detect -taxa Bunyavirales
+i.e. python 01detection.py -in . -taxa Riboviria
 ```
 * Run 02phylotree.py
 ```
 python 02phylotree.py -in </path/to/base/directory> -taxa <selected taxa>
-i.e. python 02phylotree.py -in /pscratch/sd/c/cle2/rnav_detect -taxa Bunyavirales
+i.e. python 02phylotree.py -in . -taxa Riboviria
 ```
 * Run 03decorate.py
 ```
 python 03decorate.py -in </path/to/base/directory> -taxa <selected taxa> -outgroup <outgroup taxa>
-i.e. python 03decorate.py -in /pscratch/sd/c/cle2/rnav_detect -taxa Bunyavirales -outgroup Nidovirales
+i.e. python 03decorate.py -in . -taxa Riboviria -outgroup Nidovirales
 ```
  
 ## Summary of the pipeline
