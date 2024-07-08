@@ -3,6 +3,7 @@
 ## How to run it
 * Create conda env
 ```
+cd rnavclass 
 conda env create --name workflow --file=workflow.yaml
 conda activate workflow
 checkv download_database .
