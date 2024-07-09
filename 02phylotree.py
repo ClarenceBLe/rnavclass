@@ -261,8 +261,8 @@ def treebuild_phylotree(base_dir, taxa):
     mafft = f"mafft {base_dir}/results/treebuild/{taxa}/prnav_combined.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft"
     trimal = f"trimal -in {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft -out {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -gt 0.1"
     iqtree = f"iqtree -s {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
-    cluster1 = f"python {base_dir}/resources/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster auto {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
-    cluster2 = f"python {base_dir}/resources/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster 0.1 {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
+    cluster1 = f"python {base_dir}/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster auto {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
+    cluster2 = f"python {base_dir}/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster 0.1 {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
 
     print(combine_faa)
     run_process(combine_faa)
@@ -342,9 +342,9 @@ def main(base_dir: str = typer.Option(..., '-in', help="Base directory where all
     
     create_taxa_subdirs(base_dir, target_taxa)
     taxonomy_contig_file_ddict, contig_taxonomy_dict = read_genomad_taxref(base_dir)
-    #run_hmm(base_dir, rdrp_db)
-    #hmm_hits_ddict, hmm_hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
-    #hmm_hits_maxscore_df = process_hmmout_maxscore(base_dir, hmm_hits_ddict, contig_taxonomy_dict)
+    run_hmm(base_dir, rdrp_db)
+    hmm_hits_ddict, hmm_hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
+    hmm_hits_maxscore_df = process_hmmout_maxscore(base_dir, hmm_hits_ddict, contig_taxonomy_dict)
     hmm_hits_all_df, hmm_hits_maxscore_df = read_hmm_output(base_dir)
     extract_viral_assembly(base_dir, target_taxa, taxonomy_contig_file_ddict)
     add_ncbi_taxa(base_dir, target_taxa)
