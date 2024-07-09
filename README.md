@@ -1,5 +1,5 @@
 # rnavclass
-* Identify RNA viruses in environmental seuqence dataset and place in reference species tree
+* Identify RNA viruses in environmental sequence dataset and place in reference species tree
 ## How to run it
 * Create conda env
 ```
