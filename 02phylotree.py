@@ -272,10 +272,10 @@ def treebuild_phylotree(base_dir, taxa):
     run_process(trimal)
     print(iqtree)
     run_process(iqtree)
-    print(cluster1)
-    run_process(cluster1)
-    print(cluster2)
-    run_process(cluster2)    
+    #print(cluster1)
+    #run_process(cluster1)
+    #print(cluster2)
+    #run_process(cluster2)    
 
 #________________________________________
 
