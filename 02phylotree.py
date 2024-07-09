@@ -353,7 +353,7 @@ def main(base_dir: str = typer.Option(..., '-in', help="Base directory where all
     hmm_hits_maxscore_df = append_dataframes(base_dir, target_taxa, hmm_hits_maxscore_df)
     make_genomestats_itolanno(base_dir, hmm_hits_maxscore_df)
     treebuild_phylotree(base_dir, target_taxa)
-    process_clustrep(base_dir, target_taxa, ['0.1'])
+    #process_clustrep(base_dir, target_taxa, ['0.1'])
 
 if __name__ == "__main__":
     app()
