@@ -9,6 +9,10 @@ conda activate workflow
 checkv download_database .
 genomad download-database .
 ```
+* Download RdRp models into rnavclass/ directory
+```
+https://riboviria.org/#download
+```
 * Run 01detection.py
 ```
 python 01detection.py -in </path/to/base/directory> -taxa <selected taxa>
