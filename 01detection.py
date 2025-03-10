@@ -269,7 +269,7 @@ def get_genomestats(base_dir, taxa):
     genomestats_dict = defaultdict(list)
     for faa in glob.glob(f"{base_dir}/results/assembly/{taxa}/faa/*.faa"):
         assembly = faa.split('/')[-1].split('.faa')[0]
-        fna = f"{base_dir}/results/assembly/{taxa}/faa/{assembly}.faa"
+        fna = f"{base_dir}/results/assembly/{taxa}/fna/{assembly}.fna"
         for fnarecord in SeqIO.parse(fna,'fasta'):
             for faarecord in SeqIO.parse(faa,'fasta'):
                 if faarecord.id.rsplit('_',1)[0] in fnarecord.id:
@@ -298,7 +298,7 @@ def main(base_dir: str = typer.Option(..., '-in', help="base directory where all
     run_ncbi_genomad(base_dir, genomad_db, target_taxa)
     process_ncbi_genomad(base_dir)
     get_ncbi_genomestats(base_dir)
-    #append_ncbi_descrip(base_dir)
+    append_ncbi_descrip(base_dir)
     run_genomad(base_dir, genomad_db, target_taxa)
     taxonomy_contig_file_ddict = process_genomad(base_dir, target_taxa)
     taxonomy_contig_file_ddict = read_genomad_taxref(base_dir)
