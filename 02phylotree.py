@@ -1,15 +1,15 @@
 import os
 import sys
 import glob
-import typer
-import shutil
 import subprocess
 import pandas as pd
 from Bio import SeqIO
 from collections import defaultdict
+import typer
 
 app = typer.Typer()
 
+# Run shell command with stdout/stderr output
 def run_process(cmd: str):
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     stdout, stderr = process.communicate()
@@ -18,342 +18,271 @@ def run_process(cmd: str):
     if stderr:
         print(stderr.decode('utf-8'), file=sys.stderr)
 
-#___________________________
-
+# Create necessary subdirectories for a given taxa
 def create_taxa_subdirs(base_dir: str, taxa: str):
-    subdirs_info = [
-        ('results/hmm', 'hmmsearch output'),
-        ('results/clustrep_treebuild', 'phylotree subdir for cluster representatives'),
-        (f"results/clustrep_treebuild/{taxa}", 'taxa-specific phylotree output for cluster representatives'),
-        ('results/treebuild', 'phylotree subdir for entire alignment'),
-        (f"results/treebuild/{taxa}", 'taxa-specific phylotree output for entire alignment'),
-        ('results/viral_assembly', 'extracted viral assembly subdir'),
-        (f"results/viral_assembly/{taxa}", 'taxa-specific extracted viral assembly subdir'),
-        (f"results/viral_assembly/{taxa}/fna", 'taxa-specific extracted fna'),
-        (f"results/viral_assembly/{taxa}/faa", 'taxa-specific extracted faa')
+    subdirs = [
+        f"results/hmm",
+        f"results/clustrep_treebuild",
+        f"results/clustrep_treebuild/{taxa}",
+        f"results/treebuild",
+        f"results/treebuild/{taxa}",
+        f"results/viral_assembly",
+        f"results/viral_assembly/{taxa}",
+        f"results/viral_assembly/{taxa}/fna",
+        f"results/viral_assembly/{taxa}/faa",
+        f"results/stats",
+        f"resources/db/ncbi_jan2024/ncbi_faa"
     ]
-
-    for subdir, description in subdirs_info:
+    for subdir in subdirs:
         dir_path = os.path.join(base_dir, subdir)
         os.makedirs(dir_path, exist_ok=True)
-        typer.echo(f'Creating {description} at {dir_path}')
+        typer.echo(f"Created: {dir_path}")
 
-    typer.echo('Finished creating all directories.')
-
-#________________________________________
-
+# Read genome taxonomy references
 def read_genomad_taxref(base_dir):
+    taxonomy_file = os.path.join(base_dir, "results/genomad/orig/genomad_file_contig_taxonomy.tsv")
     taxonomy_contig_file_ddict = defaultdict(list)
     contig_taxonomy_dict = {}
-    with open(f"{base_dir}/results/genomad/orig/genomad_file_contig_taxonomy.tsv",'r') as file:
-        for line in file.readlines():
+    with open(taxonomy_file, 'r') as file:
+        for line in file:
             if not line.startswith('seq_name'):
-                filename = line.split('\t')[0]
-                contig = line.split('\t')[1]
-                taxa = line.split('\t')[2].split('\n')[0]
-    
+                filename, contig, taxa = line.strip().split('\t')[:3]
                 taxonomy_contig_file_ddict[taxa].append([contig, filename])
-                contig_taxonomy_dict[contig]=taxa
-    
+                contig_taxonomy_dict[contig] = taxa
     return taxonomy_contig_file_ddict, contig_taxonomy_dict
 
-#____________________________
-    
+# Run HMMER search on protein fasta files
 def run_hmm(base_dir, rdrp_db):
-    for faa in glob.glob(f"{base_dir}/results/genomad/orig/*_summary/*_proteins.faa"):
-        assembly = faa.split('/')[-1].split('_proteins.faa')[0] 
-        hmmsearch_tblout = f"{base_dir}/results/hmm/{assembly}.out"
-        hmmsearch = f"hmmsearch --domtblout {hmmsearch_tblout} --noali --cpu 16 {rdrp_db} {faa}"
-        print(f"running hmmsearch: {hmmsearch}") 
-        run_process(hmmsearch)
+    faa_files = glob.glob(f"{base_dir}/results/genomad/orig/*_summary/*_proteins.faa")
+    for faa in faa_files:
+        assembly = os.path.basename(faa).split('_proteins.faa')[0]
+        out_path = f"{base_dir}/results/hmm/{assembly}.out"
+        cmd = f"hmmsearch --domtblout {out_path} --noali --cpu 16 {rdrp_db} {faa}"
+        print(f"Running: {cmd}")
+        run_process(cmd)
 
-#_____________________________
-
+# Process HMMER output files into dataframe
 def process_hmmout_all(base_dir, contig_taxonomy_dict):
-    rdrp_list = []
-    protein_list = []
-    score_list = []
-    contig_list = []
-
+    contig_list, protein_list, rdrp_list, score_list = [], [], [], []
     hits_ddict = defaultdict(list)
     for hmmout in glob.glob(f"{base_dir}/results/hmm/*.out"):
         with open(hmmout,'r') as file:
-            for line in file.readlines():
+            for line in file:
                 if not line.startswith('#'):
-                    evalue = line.split()[6]
-                    score = line.split()[7]
-                    if float(evalue)<=1e-10 and float(score)>=70:
-                        protein = line.split()[0]
-                        contig = protein.rsplit('_',1)[0]
+                    fields = line.strip().split()
+                    evalue, score = float(fields[6]), float(fields[7])
+                    if evalue <= 1e-10 and score >= 70:
+                        protein = fields[0]
+                        contig = protein.rsplit('_', 1)[0]
+                        model = fields[3]
+                        bias = fields[8]
                         lib = protein.split('|')[0].split('_')[0]
-                        model = line.split()[3]
-                        bias = line.split()[8]
-                    
-                        rdrp_list.append(model)
-                        protein_list.append(protein)
-                        score_list.append(score)
+
                         contig_list.append(contig)
-                    
+                        protein_list.append(protein)
+                        rdrp_list.append(model)
+                        score_list.append(score)
                         hits_ddict[contig].append([lib, protein, model, evalue, score, bias])
 
-    hits_df = pd.DataFrame([contig_list, protein_list, rdrp_list, score_list]).T                    
-    hits_df.columns = ['contig', 'protein', 'model', 'score']
-    hits_df['score'] = hits_df['score'].astype(float)
+    hits_df = pd.DataFrame({
+        'contig': contig_list,
+        'protein': protein_list,
+        'model': rdrp_list,
+        'score': score_list
+    })
     hits_df['taxonomy'] = hits_df['contig'].map(contig_taxonomy_dict).fillna('unknown')
     hits_df['branch_label'] = hits_df['taxonomy'] + '|' + hits_df['protein']
-    hits_df['branch_label'] = hits_df['branch_label'].str.replace('\n','', regex=False)
     hits_df['host_lib'] = hits_df['contig'].apply(lambda x: x.split('_')[0])
-    hits_df.to_csv(f"{base_dir}/results/stats/processed_hmmout_ALL.csv", index=None) 
+    hits_df.to_csv(f"{base_dir}/results/stats/processed_hmmout_ALL.csv", index=False)
 
     return hits_ddict, hits_df
 
-#______________________________________
+# Process HMM hits and retain the best scoring hit per contig
+def process_hmmout_maxscore(base_dir, hits_ddict, contig_taxonomy_dict):
+    max_hits = []
+    for contig, entries in hits_ddict.items():
+        best_hit = max(entries, key=lambda x: float(x[4]))
+        max_hits.append([contig] + best_hit)
 
-def process_hmmout_maxscore(base_dir, hmm_hits_ddict, contig_taxonomy_dict):
-    hmm_viralhits_maxscore_dict = defaultdict(list)
-    for key,val in hmm_hits_ddict.items():
-        max_score = 0
-        for i in range(len(val)):
-            score = float(hmm_hits_ddict[key][i][4])
-            if score > max_score:
-                max_score = score
-                max_score_index = i
-        hmm_viralhits_maxscore_dict[key].append(hmm_hits_ddict[key][max_score_index])
+    cols = ['contig', 'library', 'protein', 'model', 'evalue', 'score', 'bias']
+    df = pd.DataFrame(max_hits, columns=cols)
+    df['score'] = df['score'].astype(float)
+    df['taxonomy'] = df['contig'].map(contig_taxonomy_dict).fillna('unknown')
+    df['branch_label'] = df['taxonomy'] + '|' + df['protein']
+    df['host_lib'] = df['contig'].apply(lambda x: x.split('_')[0])
+    df.to_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv", index=False)
+    return df
 
-    hmm_viralhits_maxscore_df = pd.DataFrame([[key] + j for key,val in hmm_viralhits_maxscore_dict.items() for j in val], columns=['contig', 'library', 'protein', 'model', 'evalue', 'score', 'bias'])
-    hmm_viralhits_maxscore_df['score'] = hmm_viralhits_maxscore_df['score'].astype(float)
-    hmm_viralhits_maxscore_df['taxonomy'] = hmm_viralhits_maxscore_df['contig'].map(contig_taxonomy_dict).fillna('unknown')
-    hmm_viralhits_maxscore_df['branch_label'] = hmm_viralhits_maxscore_df['taxonomy'] + '|' + hmm_viralhits_maxscore_df['protein']
-    hmm_viralhits_maxscore_df['branch_label'] = hmm_viralhits_maxscore_df['branch_label'].str.replace('\n','', regex=False)
-    hmm_viralhits_maxscore_df['host_lib'] = hmm_viralhits_maxscore_df['contig'].apply(lambda x: x.split('_')[0])
-    hmm_viralhits_maxscore_df.to_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv", index=None)
+# Extract relevant viral contigs and proteins to new FASTA files
+def extract_viral_assembly(base_dir, taxa, taxref):
+    max_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
+    df = max_df[max_df['taxonomy'].str.contains(taxa)]
+    viral_proteins = set(df['protein'])
+    viral_contigs = set(p.rsplit('_', 1)[0] for p in viral_proteins)
 
-    return hmm_viralhits_maxscore_df
+    seen_contigs = set()
+    seen_proteins = set()
 
-#________________________________________
+    for taxa_name, records in taxref.items():
+        if taxa in taxa_name:
+            for contig, filename in records:
+                if contig in viral_contigs:
+                    fna_in = os.path.join(base_dir, f"orig_assembly/{filename}.fna")
+                    faa_in = os.path.join(base_dir, f"results/assembly/{taxa}/faa/{filename}.faa")
+                    fna_out = os.path.join(base_dir, f"results/viral_assembly/{taxa}/fna/{filename}.fna")
+                    faa_out = os.path.join(base_dir, f"results/viral_assembly/{taxa}/faa/{filename}.faa")
 
-def read_hmm_output(base_dir):
-    hmm_hits_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_ALL.csv")
-    hmm_viralhits_maxscore_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv") 
+                    with open(fna_out, 'a') as fnaw, open(faa_out, 'a') as faaw:
+                        for record in SeqIO.parse(fna_in, 'fasta'):
+                            if record.id.strip() in viral_contigs and record.id not in seen_contigs:
+                                SeqIO.write(record, fnaw, 'fasta')
+                                seen_contigs.add(record.id)
 
-    return hmm_hits_df, hmm_viralhits_maxscore_df
+                        for record in SeqIO.parse(faa_in, 'fasta'):
+                            if record.id.strip() in viral_proteins and record.id not in seen_proteins:
+                                SeqIO.write(record, faaw, 'fasta')
+                                seen_proteins.add(record.id)
 
-#_________________________________________
-
-def extract_viral_assembly(base_dir, taxa, taxonomy_contig_file_ddict):
-
-    def extract_viral_fna(file, newfile):
-        for record in SeqIO.parse(file,'fasta'):
-            if record.id.strip() in hmm_viral_contigs:
-                if not record.id.strip() in processed_contigs:
-                    with open(fna_file_path, 'a') as newfile:
-                        processed_contigs.append(record.id.strip())
-                        newfile.write('>' + str(record.id.strip()) + '\n' + str(record.seq) + '\n')
-            
-    def extract_viral_faa(file, newfile):
-        for record in SeqIO.parse(file,'fasta'):
-            if record.id.strip() in hmm_viral_proteins:
-                if not record.id.strip() in processed_proteins:
-                    with open(faa_file_path, 'a') as newfile:
-                        processed_proteins.append(record.id.strip())
-                        newfile.write('>' + str(record.id.strip()) + '\n' + str(record.seq) + '\n')
-
-    hmm_hits_maxscore_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
-    df = hmm_hits_maxscore_df[hmm_hits_maxscore_df['taxonomy'].str.contains(taxa)]
-    hmm_viral_proteins = list(set(df.protein))
-    print(f"viral LKH proteins {taxa}: {len([x for x in hmm_viral_proteins if x.startswith('LKH')])}")
-    hmm_viral_contigs = list(set([x.rsplit('_',1)[0] for x in hmm_viral_proteins]))
-
-    processed_contigs = []
-    processed_proteins = []
-    for key,val in taxonomy_contig_file_ddict.items():
-        if taxa in key:
-            for i in range(len(val)):
-                if val[i][0] in hmm_viral_contigs:
-                    filename = val[i][1]
-                    fna = f"{base_dir}/orig_assembly/{filename}.fna"
-                    faa = f"{base_dir}/results/assembly/{taxa}/faa/{filename}.faa"
-                    fna_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/fna", f"{filename}.fna")
-                    faa_file_path = os.path.join(f"{base_dir}/results/viral_assembly/{taxa}/faa", f"{filename}.faa")
-                    extract_viral_fna(fna, fna_file_path)
-                    extract_viral_faa(faa, faa_file_path)
-
-#_________________________________________
-            
+# Add NCBI proteins to viral assemblies
 def add_ncbi_taxa(base_dir, taxa):
-
-    def extract_ncbi(file):
-        filename = file.rsplit('/',1)[-1].split('_proteins.faa')[0]
-        for record in SeqIO.parse(file, 'fasta'):
-            if record.id in ncbi_proteins:
-                if not record.id in processed_proteins:
-                    processed_proteins.append(record.id)
-                    with open(f"{base_dir}/results/viral_assembly/{taxa}/faa/{filename}.faa",'a') as newfile:
-                        newfile.write('>' + str(record.id) + '\n' + str(record.seq) + '\n')
-
     df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
-    ncbi_sub = df[df['protein'].str.startswith('LKH')==False]
-    ncbi_proteins = list(set(ncbi_sub[ncbi_sub['taxonomy'].str.contains(f"{taxa}")].protein))
+    ncbi_proteins = set(df[(~df['protein'].str.startswith('LKH')) & df['taxonomy'].str.contains(taxa)]['protein'])
+    seen = set()
+    for faa_file in glob.glob(f"{base_dir}/resources/db/ncbi_jan2024/ncbi_faa/*.faa"):
+        for record in SeqIO.parse(faa_file, 'fasta'):
+            if record.id in ncbi_proteins and record.id not in seen:
+                seen.add(record.id)
+                out_path = os.path.join(base_dir, f"results/viral_assembly/{taxa}/faa/ncbi_{record.id}.faa")
+                with open(out_path, 'a') as f:
+                    SeqIO.write(record, f, 'fasta')
 
-    processed_proteins = []
-    for file in glob.glob(f"{base_dir}/resources/db/ncbi_jan2024/ncbi_faa/*.faa"):
-        extract_ncbi(file)
-
-#_________________________________________
-        
+# Remove duplicate proteins from combined set
 def remove_duplicates(base_dir, taxa):
-    def review_records(file, newfile):
-        for record in SeqIO.parse(file,'fasta'):
-            if not record.id in processed_proteins:
-                processed_proteins.append(record.id)
-                newfile.write('>' + str(record.id) + '\n' + str(record.seq) + '\n')
+    output_file = os.path.join(base_dir, f"results/treebuild/{taxa}/combined.faa")
+    seen_ids = set()
+    with open(output_file, 'w') as out_f:
+        for faa_file in glob.glob(f"{base_dir}/results/viral_assembly/{taxa}/faa/*.faa"):
+            for record in SeqIO.parse(faa_file, 'fasta'):
+                if record.id not in seen_ids:
+                    seen_ids.add(record.id)
+                    SeqIO.write(record, out_f, 'fasta')
 
-    processed_proteins = []
-    with open(f"{base_dir}/results/treebuild/{taxa}/combined.faa",'a') as newfile:
-        for file in glob.glob(f"{base_dir}/results/viral_assembly/{taxa}/faa/*.faa"):
-            review_records(file, newfile)
-
-#_________________________________________
-
-def make_branchlabel_itolanno(base_dir, df):
-
-    with open(f"{base_dir}/results/treebuild/itol_branchlabels.txt",'a') as newfile:
-        newfile.write('LABELS' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATA' + '\n')
-        for key,val in dict(zip(df.protein, df.branch_label)).items():
-            newfile.write(str(key) + ',' + str(val) + '\n')
-
-#________________________________________
-            
-def append_dataframes(base_dir, taxa, hmm_maxscore_df):
-    genomestats = pd.read_csv(f"{base_dir}/results/stats/prnav_genomestats_{taxa}.csv")
-
-    hmm_maxscore_df['bplen'] = hmm_maxscore_df['contig'].map(dict(zip(genomestats.contig, genomestats.bplen)))
-    hmm_maxscore_df['gc_content'] = hmm_maxscore_df['contig'].map(dict(zip(genomestats.contig, genomestats.gc_content)))
-    hmm_maxscore_df['coding_density'] = hmm_maxscore_df['contig'].map(dict(zip(genomestats.contig, genomestats.coding_density))) 
-    hmm_maxscore_df.to_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv", index=None)
-
-    return hmm_maxscore_df
-
-#________________________________________
-    
-def make_genomestats_itolanno(base_dir, df):
-
-    with open(f"{base_dir}/results/treebuild/itol_simplebar_bplen.txt",'a') as newfile:
-        newfile.write('DATASET_SIMPLEBAR' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATASET_LABEL,bplen' + '\n' + 'COLOR,#0000FF' + '\n' + 'DATA' + '\n')
-        for key,val in dict(zip(df.protein, df.bplen)).items():
-            newfile.write(str(key) + ',' + str(val) + '\n')
-    
-    with open(f"{base_dir}/results/treebuild/itol_simplebar_coding_density.txt",'a') as newfile:
-        newfile.write('DATASET_SIMPLEBAR' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATASET_LABEL,coding_density' + '\n' + 'COLOR,#00cc00' + '\n' + 'DATA' + '\n')
-        for key,val in dict(zip(df.protein, df.coding_density)).items():
-            newfile.write(str(key) + ',' + str(val) + '\n') 
-
-    with open(f"{base_dir}/results/treebuild/itol_simplebar_GCcontent.txt",'a') as newfile:
-        newfile.write('DATASET_SIMPLEBAR' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATASET_LABEL,gc_content' + '\n' + 'COLOR,#ff6700' + '\n' + 'DATA' + '\n')
-        for key,val in dict(zip(df.protein, df.gc_content)).items():
-            newfile.write(str(key) + ',' + str(val) + '\n')
-
-#________________________________________
-
+# Perform MAFFT alignment, TrimAl filtering, and IQ-TREE phylogenetic tree construction
 def treebuild_phylotree(base_dir, taxa):
-    
-    combine_faa = f"cat {base_dir}/results/treebuild/{taxa}/combined.faa {base_dir}/outgroup_nidovirales/faa/*.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.faa"
-    mafft = f"mafft {base_dir}/results/treebuild/{taxa}/prnav_combined.faa > {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft"
-    trimal = f"trimal -in {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft -out {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -gt 0.1"
-    iqtree = f"iqtree -s {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01 -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
-    cluster1 = f"python {base_dir}/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster auto {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
-    cluster2 = f"python {base_dir}/scripts/clustering_pdm_withoutcounts.py {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01.treefile {base_dir}/results/treebuild/{taxa}/cluster 0.1 {base_dir}/results/treebuild/{taxa}/prnav_combined.mafft01"
+    combined_faa = os.path.join(base_dir, f"results/treebuild/{taxa}/combined.faa")
+    aligned_faa = os.path.join(base_dir, f"results/treebuild/{taxa}/aligned.mafft")
+    trimmed_faa = os.path.join(base_dir, f"results/treebuild/{taxa}/aligned_trimmed.faa")
+    treefile = os.path.join(base_dir, f"results/treebuild/{taxa}/aligned_trimmed.faa.treefile")
 
-    print(combine_faa)
-    run_process(combine_faa)
-    print(mafft)
-    run_process(mafft)
-    print(trimal)
-    run_process(trimal)
-    print(iqtree)
-    run_process(iqtree)
-    #print(cluster1)
-    #run_process(cluster1)
-    #print(cluster2)
-    #run_process(cluster2)    
+    mafft_cmd = f"mafft --auto {combined_faa} > {aligned_faa}"
+    trimal_cmd = f"trimal -in {aligned_faa} -out {trimmed_faa} -gt 0.1"
+    iqtree_cmd = f"iqtree -s {trimmed_faa} -m LG+G -alrt 1000 -bb 1000 -nt AUTO"
 
-#________________________________________
+    print("Running MAFFT alignment...")
+    run_process(mafft_cmd)
 
+    print("Running TrimAl filtering...")
+    run_process(trimal_cmd)
+
+    print("Running IQ-TREE phylogenetic reconstruction...")
+    run_process(iqtree_cmd)
+
+# Generate iTOL branch label annotations and genome stats bar plots
+def make_itol_annotations(base_dir, taxa):
+    df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
+    df = df[df['taxonomy'].str.contains(taxa)]
+
+    with open(f"{base_dir}/results/treebuild/itol_branchlabels.txt", 'w') as f:
+        f.write("LABELS\nSEPARATOR COMMA\nDATA\n")
+        for row in df.itertuples():
+            f.write(f"{row.protein},{row.branch_label}\n")
+
+    def write_simplebar(df, value_col, label, color, filename):
+        with open(os.path.join(base_dir, f"results/treebuild/{filename}"), 'w') as f:
+            f.write(f"DATASET_SIMPLEBAR\nSEPARATOR COMMA\nDATASET_LABEL,{label}\nCOLOR,{color}\nDATA\n")
+            for row in df.itertuples():
+                if hasattr(row, value_col):
+                    f.write(f"{row.protein},{getattr(row, value_col)}\n")
+
+    for stat, label, color, fname in [
+        ('bplen', 'bplen', '#0000FF', 'itol_simplebar_bplen.txt'),
+        ('gc_content', 'gc_content', '#ff6700', 'itol_simplebar_GCcontent.txt'),
+        ('coding_density', 'coding_density', '#00cc00', 'itol_simplebar_coding_density.txt')
+    ]:
+        if stat in df.columns:
+            write_simplebar(df, stat, label, color, fname)
+
+# Perform clustering-based extraction of cluster representatives and build reduced trees
 def process_clustrep(base_dir, taxa, cutoffs):
-
-    def extract_clustrep(base_dir, taxa, clustrep_color_dict, cutoff):
-        with open(f"{base_dir}/results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.faa", 'a') as newfile:
-            for file in glob.glob(f"{base_dir}/results/treebuild/{taxa}/prnav_combined.faa"):
-                for record in SeqIO.parse(file,'fasta'):
-                    if record.id.strip() in clustrep_color_dict.keys():
-                        newfile.write('>' + str(record.id.strip()) + '\n' + str(record.seq) + '\n')
-    
-    def clustrep_phylotree(base_dir, taxa, cutoff):
-        mafft = f"mafft {base_dir}/results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.faa > {base_dir}/results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.mafft"
-        iqtree = f"iqtree -s {base_dir}/results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.mafft -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
-
-        print(mafft)
-        run_process(mafft)
-        print(iqtree)
-        run_process(iqtree)
-
     for cutoff in cutoffs:
-        clustrep_color_dict = {} 
-        with open(f"{base_dir}/results/treebuild_reduced/{taxa}/cluster_clusters_withsingletons/cluster_{cutoff}.txt",'r') as file:
-            LKH_count = 0
-            ncbi_count = 0
-            for line in file.readlines():
-                if not line.startswith('genome'):
-                    clustrep = line.split()[0]
-                
-                    for member in line.split():
-                        if member.startswith('LKH'):
-                            LKH_count+=1
-                        elif not member.startswith('LKH'):
-                            ncbi_count+=1
-                    if LKH_count>0 and ncbi_count==0:
-                        clustrep_color_dict[clustrep]='#FF0000' #red, LKHonly
-                    elif LKH_count>0 and ncbi_count>0:
-                        clustrep_color_dict[clustrep]='#0000ff' #blue, shared
+        cluster_file = os.path.join(base_dir, f"results/treebuild_reduced/{taxa}/cluster_clusters_withsingletons/cluster_{cutoff}.txt")
+        output_faa = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.faa")
+        itol_cluster = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/itol_clustrep_{cutoff}.txt")
+        itol_colors = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/itol_extended_branchcolor_{cutoff}.txt")
 
-        with open(f"{base_dir}/results/clustrep_treebuild/{taxa}/itol_clustrep_{cutoff}.txt", 'a') as newfile:
-            newfile.write('DATASET_SYMBOL' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATASET_LABEL, cluster_rep' + '\n' + 'MAXIMUM_SIZE, 10' + '\n' + 'DATA' + '\n')
-            for key,val in clustrep_color_dict.items():
-                newfile.write(str(key) + ',1,1,' + str(val) + ',1,1' + '\n')
-    
-        with open(f"{base_dir}/results/clustrep_treebuild/{taxa}/itol_extended_branchcolor_{cutoff}.txt", 'a') as newfile:
-            newfile.write('DATASET_COLORSTRIP' + '\n' + 'SEPARATOR COMMA' + '\n' + 'DATASET_LABEL,extended_branchcolor' + '\n' + 'COLOR_BRANCHES,1' + '\n' + 'DATA' + '\n')
-            for key,val in clustrep_color_dict.items():
-                if key.startswith('LKH'):
-                    newfile.write(str(key) + ',#FF0000,query' + '\n')
-        
-        extract_clustrep(base_dir, taxa, clustrep_color_dict, cutoff)
-        clustrep_phylotree(base_dir, taxa, cutoff)
-    
-        return clustrep_color_dict
-               
-#________________________________________
+        clustrep_color_dict = {}
+        cluster_reps = set()
 
-rdrp_db = '/global/cfs/cdirs/nelli/shared/01databases/rnav/RVMT_All_RdRP_combined_March2022.hmm'
+        with open(cluster_file, 'r') as f:
+            for line in f:
+                if line.startswith("genome"):
+                    continue
+                members = line.strip().split()
+                cluster = members[0]
+                proteins = members[1:]
+                LKH_count = sum(p.startswith("LKH") for p in proteins)
+                NCBI_count = sum(not p.startswith("LKH") for p in proteins)
+                if LKH_count > 0 and NCBI_count == 0:
+                    clustrep_color_dict[cluster] = '#FF0000'  # LKH only
+                elif LKH_count > 0 and NCBI_count > 0:
+                    clustrep_color_dict[cluster] = '#0000FF'  # mixed
+                cluster_reps.add(cluster)
 
+        # Write cluster representative proteins to FASTA
+        seen = set()
+        with open(output_faa, 'w') as out_f:
+            for faa_file in glob.glob(f"{base_dir}/results/treebuild/{taxa}/combined.faa"):
+                for record in SeqIO.parse(faa_file, 'fasta'):
+                    if record.id in cluster_reps and record.id not in seen:
+                        SeqIO.write(record, out_f, 'fasta')
+                        seen.add(record.id)
+
+        # Align and build reduced tree
+        aligned = output_faa.replace(".faa", ".mafft")
+        treefile = output_faa.replace(".faa", ".treefile")
+        run_process(f"mafft --auto {output_faa} > {aligned}")
+        run_process(f"iqtree -s {aligned} -m LG+G -alrt 1000 -bb 1000 -nt AUTO")
+
+        # Write iTOL cluster annotations
+        with open(itol_cluster, 'w') as f:
+            f.write("DATASET_SYMBOL\nSEPARATOR COMMA\nDATASET_LABEL,cluster_rep\nMAXIMUM_SIZE,10\nDATA\n")
+            for key, color in clustrep_color_dict.items():
+                f.write(f"{key},1,1,{color},1,1\n")
+
+        with open(itol_colors, 'w') as f:
+            f.write("DATASET_COLORSTRIP\nSEPARATOR COMMA\nDATASET_LABEL,extended_branchcolor\nCOLOR_BRANCHES,1\nDATA\n")
+            for key, color in clustrep_color_dict.items():
+                if key.startswith("LKH"):
+                    f.write(f"{key},{color},query\n")
+
+# Entry point for pipeline
 @app.command()
-def main(base_dir: str = typer.Option(..., '-in', help="Base directory where all subdirectories will be created"),
-         target_taxa: str = typer.Option(..., '-taxa', help="target taxa to select for analysis")):
-    
+def main(base_dir: str = typer.Option(..., "-in", help="Base directory"),
+         target_taxa: str = typer.Option(..., "-taxa", help="Target taxa for analysis")):
+
+    rdrp_db = '/global/cfs/cdirs/nelli/shared/01databases/rnav/RVMT_All_RdRP_combined_March2022.hmm'
+
     create_taxa_subdirs(base_dir, target_taxa)
     taxonomy_contig_file_ddict, contig_taxonomy_dict = read_genomad_taxref(base_dir)
     run_hmm(base_dir, rdrp_db)
-    hmm_hits_ddict, hmm_hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
-    hmm_hits_maxscore_df = process_hmmout_maxscore(base_dir, hmm_hits_ddict, contig_taxonomy_dict)
-    hmm_hits_all_df, hmm_hits_maxscore_df = read_hmm_output(base_dir)
+    hits_ddict, hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
+    hits_max_df = process_hmmout_maxscore(base_dir, hits_ddict, contig_taxonomy_dict)
     extract_viral_assembly(base_dir, target_taxa, taxonomy_contig_file_ddict)
     add_ncbi_taxa(base_dir, target_taxa)
     remove_duplicates(base_dir, target_taxa)
-    make_branchlabel_itolanno(base_dir, hmm_hits_maxscore_df)
-    hmm_hits_maxscore_df = append_dataframes(base_dir, target_taxa, hmm_hits_maxscore_df)
-    make_genomestats_itolanno(base_dir, hmm_hits_maxscore_df)
     treebuild_phylotree(base_dir, target_taxa)
-    #process_clustrep(base_dir, target_taxa, ['0.1'])
+    make_itol_annotations(base_dir, target_taxa)
+    process_clustrep(base_dir, target_taxa, cutoffs=["0.1"])
 
 if __name__ == "__main__":
     app()

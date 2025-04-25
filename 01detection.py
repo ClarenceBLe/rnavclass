@@ -3,12 +3,10 @@ import sys
 import glob
 import typer
 import subprocess
-from Bio import SeqIO
+from pathlib import Path
 import pandas as pd
-import numpy as np
+from Bio import SeqIO
 from collections import defaultdict
-import matplotlib.pyplot as plt
-import seaborn as sb
 
 app = typer.Typer()
 
@@ -20,290 +18,260 @@ def run_process(cmd: str):
     if stderr:
         print(stderr.decode('utf-8'), file=sys.stderr)
 
-#___________________________________
-
 def create_taxa_subdirs(base_dir: str, taxa: str):
+    base_path = Path(base_dir)
     subdirs_info = [
-        ('results', 'subdirs for all results'),
-        ('results/genomad', 'geNomad output'),
-        ('results/genomad/ncbi', 'geNomad output for ncbi reference'),
-        ('results/genomad/orig', 'geNomad output for original fna'),
-        ('results/checkv', 'CheckV output'),
-        ('results/checkv/ncbi', 'ref-ncbi CheckV subdir'),
-        ('results/checkv/ncbi/results', 'ref-ncbi CheckV output'),
-        (f"results/checkv/{taxa}", 'taxa-specific CheckV subdir'),
-        (f"results/checkv/{taxa}/results", 'taxa-specific CheckV output'),
-        ('results/stats', 'stats output subdir'),
-        ('results/assembly', 'filtered and extracted assemblies (fna/faa)'),
-        (f"results/assembly/ncbi", 'ncbi filtered and extracted assemblies (fna/faa) subdir'),
-        (f"results/assembly/ncbi/fna", 'ncbi filtered and extracted assemblies fna subdir'),
-        (f"results/assembly/ncbi/faa", 'ncbi filtered and extracted assemblies faa subdir'),
-        (f"results/assembly/{taxa}", 'taxa-specific filtered and extracted assemblies (fna/faa) subdir'),
-        (f"results/assembly/{taxa}/fna", 'taxa-specific extracted fna'),
-        (f"results/assembly/{taxa}/faa", 'taxa-specific extracted faa')
-
+        'results/genomad/ncbi',
+        'results/genomad/orig',
+        'results/checkv/ncbi/results',
+        f"results/checkv/{taxa}/results",
+        'results/stats',
+        'results/assembly/ncbi/fna',
+        'results/assembly/ncbi/faa',
+        f"results/assembly/{taxa}/fna",
+        f"results/assembly/{taxa}/faa"
     ]
 
-    for subdir, description in subdirs_info:
-        dir_path = os.path.join(base_dir, subdir)
-        os.makedirs(dir_path, exist_ok=True)
-        typer.echo(f'Creating {description} at {dir_path}')
+    for subdir in subdirs_info:
+        dir_path = base_path / subdir
+        dir_path.mkdir(parents=True, exist_ok=True)
+        typer.echo(f"Created directory: {dir_path}")
 
-    typer.echo('Finished creating all directories.')
+    typer.echo("All directories created successfully.")
 
-#___________________________________
+def run_ncbi_checkv(base_dir: str, checkv_db: str):
+    base_path = Path(base_dir)
+    combined_fna_path = base_path / "results/checkv/ncbi/ncbi_combined.fna"
+    combine_fna_cmd = f"cat {base_path / 'ncbi'}/*.fna > {combined_fna_path}"
+    run_process(combine_fna_cmd)
 
-def run_ncbi_checkv(base_dir, checkv_db):
-    combine_fna = f"cat {base_dir}/ncbi/*.fna > {base_dir}/results/checkv/ncbi/ncbi_combined.fna"
-    print(combine_fna)
-    run_process(combine_fna)
-    checkv = f"checkv end_to_end {base_dir}/results/checkv/ncbi/ncbi_combined.fna {base_dir}/results/checkv/ncbi/results -d {checkv_db} -t 16"
-    print(checkv)
-    run_process(checkv)
+    checkv_cmd = f"checkv end_to_end {combined_fna_path} {base_path / 'results/checkv/ncbi/results'} -d {checkv_db} -t 16"
+    run_process(checkv_cmd)
 
-#___________________________________
-    
-def run_ncbi_genomad(base_dir, genomad_db, taxa):
-
-    for fna in glob.glob(f"{base_dir}/ncbi/*.fna"):
-        file = fna.rsplit('/',1)[-1].split('.fna')[0]
-        genomad = f"genomad end-to-end --min-score 0.7 --cleanup --splits 8 {fna} {base_dir}/results/genomad/ncbi {genomad_db}"
-        for record in SeqIO.parse(fna, 'fasta'):
-            bplen = len(record.seq)
-            if float(bplen)>=1000.0:
-                if 'cov_' in str(record.id):
+def run_ncbi_genomad(base_dir: str, genomad_db: str, taxa: str):
+    base_path = Path(base_dir)
+    for fna_path in base_path.glob("ncbi/*.fna"):
+        genomad_cmd = f"genomad end-to-end --min-score 0.7 --cleanup --splits 8 {fna_path} {base_path / 'results/genomad/ncbi'} {genomad_db}"
+        run_this = False
+        for record in SeqIO.parse(fna_path, 'fasta'):
+            if len(record.seq) >= 1000:
+                if 'cov_' in record.id:
                     cov = record.id.split('cov_')[1].split('_')[0]
-                    if float(cov)>=1.0:
-                        print(f"running genomad: {genomad}")
-                    run_process(genomad)
-                elif not 'cov_' in str(record.id):
-                    print(f"running genomad: {genomad}")
-                    run_process(genomad)
+                    if float(cov) >= 1.0:
+                        run_this = True
+                        break
+                else:
+                    run_this = True
+                    break
+        if run_this:
+            run_process(genomad_cmd)
 
-#___________________________________
-                        
-def process_ncbi_genomad(base_dir):
-    taxonomy_contig_file_ddict = defaultdict(list)
-    with open(f"{base_dir}/results/genomad/ncbi/ncbi_genomad_file_contig_taxonomy.tsv", 'a') as ref_file:
-        for file in glob.glob(f"{base_dir}/results/genomad/ncbi/*_summary/*_virus_summary.tsv"):
-            filename = file.rsplit('/',1)[-1].split('_virus_summary.tsv')[0]
-            with open(file,'r') as newfile:
-                for line in newfile.readlines():
-                    if not line.startswith('seq_name'):
-                        contig = line.split('\t')[0]
-                        taxa = line.split('\t')[10].split('\n')[0]         
-                        taxonomy_contig_file_ddict[taxa].append([contig, filename])
+def process_ncbi_genomad(base_dir: str):
+    base_path = Path(base_dir)
+    taxonomy_ddict = defaultdict(list)
+    ref_file_path = base_path / "results/genomad/ncbi/ncbi_genomad_file_contig_taxonomy.tsv"
+    with ref_file_path.open('a') as ref_file:
+        for summary_file in base_path.glob("results/genomad/ncbi/*_summary/*_virus_summary.tsv"):
+            filename = summary_file.stem.replace('_virus_summary', '')
+            with summary_file.open() as infile:
+                for line in infile:
+                    if line.startswith('seq_name'):
+                        continue
+                    parts = line.strip().split('\t')
+                    if len(parts) < 11:
+                        continue
+                    contig = parts[0]
+                    taxa = parts[10]
+                    taxonomy_ddict[taxa].append([contig, filename])
+                    ref_file.write(f"{filename}\t{contig}\t{taxa}\n")
+    return taxonomy_ddict
 
-                        ref_file.write(str(filename) + '\t' + str(contig) + '\t' + str(taxa) + '\n')
-
-    return taxonomy_contig_file_ddict
-    
-#____________________________________
-    
-def get_ncbi_genomestats(base_dir):
+def get_ncbi_genomestats(base_dir: str):
+    base_path = Path(base_dir)
 
     def calculate_stats(fnarecord, faarecord):
+        bplen = len(fnarecord.seq)
+        gc_count = fnarecord.seq.upper().count('G') + fnarecord.seq.upper().count('C')
+        aalen = len(faarecord.seq)
+        gc_content = format((gc_count / bplen) * 100, ".2f") if bplen else '0.00'
+        coding_density = format((aalen * 3 / bplen) * 100, ".2f") if bplen else '0.00'
+        return [bplen, gc_content, coding_density]
 
-        gc_count = 0
-        bplen = 0
-        aalen = 0
-        
-        gc_count += fnarecord.seq.upper().count('G') + fnarecord.seq.upper().count('C')
-        bplen += len(fnarecord.seq)
-        if bplen == 0:
-            pass
-        
-        aalen += len(faarecord.seq)
-            
-        return [bplen, format(gc_count/bplen*100, ".2f"), format(aalen*3/bplen*100, ".2f")]
+    genomestats = defaultdict(list)
+    faa_dir = base_path / "results/assembly/ncbi/faa"
+    for faa_file in faa_dir.glob("*.faa"):
+        assembly = faa_file.stem
+        fna_file = base_path / f"ncbi/{assembly}.fna"
+        if not fna_file.exists():
+            continue
+        for fnarecord in SeqIO.parse(fna_file, 'fasta'):
+            for faarecord in SeqIO.parse(faa_file, 'fasta'):
+                if faarecord.id.rsplit('_', 1)[0] in fnarecord.id:
+                    genomestats[fnarecord.id] = calculate_stats(fnarecord, faarecord)
 
-    genomestats_dict = defaultdict(list)
-    for faa in glob.glob(f"{base_dir}/results/assembly/ncbi/faa/*.faa"):
-        assembly = faa.split('/')[-1].split('.faa')[0]
-        fna = f"{base_dir}/ncbi/{assembly}.fna"
-        for fnarecord in SeqIO.parse(fna,'fasta'):
-            for faarecord in SeqIO.parse(faa,'fasta'):
-                if faarecord.id.rsplit('_',1)[0] in fnarecord.id:
-                    genomestats_dict[fnarecord.id] = calculate_stats(fnarecord, faarecord)
-    
-    genomestats_df = pd.DataFrame.from_dict(genomestats_dict, columns=['bplen', 'gc_content', 'coding_density'], orient='index') 
-    genomestats_df = genomestats_df.reset_index()
-    genomestats_df.columns = ['contig', 'bplen', 'gc_content', 'coding_density']
+    df = pd.DataFrame.from_dict(genomestats, orient='index', columns=['bplen', 'gc_content', 'coding_density']).reset_index()
+    df.rename(columns={'index': 'contig'}, inplace=True)
 
-    checkv_df = pd.read_csv(f"{base_dir}/results/checkv/ncbi/results/quality_summary.tsv", sep='\t')
-    genomestats_df['checkv_quality'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.checkv_quality))).fillna('unknown')
-    genomestats_df['checkv_completeness'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.completeness))).fillna('unknown')
-    genomestats_df['checkv_contamination'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.contamination))).fillna('unknown')
-    genomestats_df.to_csv(f"{base_dir}/results/genomad/ncbi/ncbi_genomestats.csv", index=None)
+    checkv_file = base_path / "results/checkv/ncbi/results/quality_summary.tsv"
+    if checkv_file.exists():
+        checkv_df = pd.read_csv(checkv_file, sep='\t')
+        df['checkv_quality'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.checkv_quality))).fillna('unknown')
+        df['checkv_completeness'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.completeness))).fillna('unknown')
+        df['checkv_contamination'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.contamination))).fillna('unknown')
 
-#___________________________________
-    
-def append_ncbi_descrip(base_dir):
-    batch_df = pd.read_csv(f"{base_dir}/resources/db/ncbi_jan2024/genbank_accession_batch_entrez.csv")
-    taxa_df = pd.read_csv(f"{base_dir}/resources/db/ncbi_jan2024/genomad_contig_taxonomy_ref.txt", sep='\t')
-    genomestats_df = pd.read_csv(f"{base_dir}/resources/db/ncbi_jan2024/ncbi_genomestats.csv")
-    
-    genomestats_df['description'] = genomestats_df['contig'].map(dict(zip(batch_df.accession, batch_df.description))).fillna('unknown')
-    genomestats_df['taxonomy'] = genomestats_df['contig'].map(dict(zip(taxa_df.seq_name, taxa_df.lineage))).fillna('unknown')
-    genomestats_df.to_csv(f"{base_dir}/resources/db/ncbi_jan2024/ncbi_genomestats.csv", index=None)
-                        
-#___________________________________
+    df.to_csv(base_path / "results/genomad/ncbi/ncbi_genomestats.csv", index=False)
 
-def run_genomad(base_dir, genomad_db, taxa):
-    for fna in glob.glob(f"{base_dir}/orig_assembly/*.fna"):
-        assembly = fna.split('/')[-1].split('.fna')[0]
-        genomad = f"genomad end-to-end --min-score 0.7 --cleanup --splits 8 {fna} {base_dir}/results/genomad/orig {genomad_db}"
-        for record in SeqIO.parse(fna, 'fasta'):
-            bplen = len(record.seq)
-            if float(bplen)>=1000.0:
-                if 'cov_' in str(record.id):
+def append_ncbi_descrip(base_dir: str):
+    base_path = Path(base_dir)
+    batch_file = base_path / "resources/db/ncbi_jan2024/genbank_accession_batch_entrez.csv"
+    taxa_file = base_path / "resources/db/ncbi_jan2024/genomad_contig_taxonomy_ref.txt"
+    stats_file = base_path / "resources/db/ncbi_jan2024/ncbi_genomestats.csv"
+
+    batch_df = pd.read_csv(batch_file)
+    taxa_df = pd.read_csv(taxa_file, sep='\t')
+    stats_df = pd.read_csv(stats_file)
+
+    stats_df['description'] = stats_df['contig'].map(dict(zip(batch_df.accession, batch_df.description))).fillna('unknown')
+    stats_df['taxonomy'] = stats_df['contig'].map(dict(zip(taxa_df.seq_name, taxa_df.lineage))).fillna('unknown')
+
+    stats_df.to_csv(stats_file, index=False)
+
+def run_genomad(base_dir: str, genomad_db: str, taxa: str):
+    base_path = Path(base_dir)
+    for fna_path in base_path.glob("orig_assembly/*.fna"):
+        genomad_cmd = f"genomad end-to-end --min-score 0.7 --cleanup --splits 8 {fna_path} {base_path / 'results/genomad/orig'} {genomad_db}"
+        run_this = False
+        for record in SeqIO.parse(fna_path, 'fasta'):
+            if len(record.seq) >= 1000:
+                if 'cov_' in record.id:
                     cov = record.id.split('cov_')[1].split('_')[0]
-                    if float(cov)>=1.0:
-                        print(f"running genomad: {genomad}")
-                        run_process(genomad)
-                elif not 'cov_' in str(record.id):
-                    print(f"running genomad: {genomad}")
-                    run_process(genomad)
+                    if float(cov) >= 1.0:
+                        run_this = True
+                        break
+                else:
+                    run_this = True
+                    break
+        if run_this:
+            run_process(genomad_cmd)
 
-#___________________________________
+def process_genomad(base_dir: str, target_taxa: str):
+    base_path = Path(base_dir)
+    taxonomy_ddict = defaultdict(list)
+    output_file = base_path / "results/genomad/orig/genomad_file_contig_taxonomy.tsv"
+    with output_file.open('a') as out:
+        for tsv_file in base_path.glob("results/genomad/orig/*_summary/*_virus_summary.tsv"):
+            filename = tsv_file.stem.replace('_virus_summary', '')
+            with tsv_file.open() as infile:
+                for line in infile:
+                    if line.startswith("seq_name"):
+                        continue
+                    parts = line.strip().split('\t')
+                    if len(parts) < 11:
+                        continue
+                    contig, taxa = parts[0], parts[10]
+                    taxonomy_ddict[taxa].append([contig, filename])
+                    out.write(f"{filename}\t{contig}\t{taxa}\n")
+    return taxonomy_ddict
 
-def process_genomad(base_dir, target_taxa):
-    taxonomy_contig_file_ddict = defaultdict(list)
-    with open(f"{base_dir}/results/genomad/orig/genomad_file_contig_taxonomy.tsv", 'a') as ref_file:
-        for file in glob.glob(f"{base_dir}/results/genomad/orig/*_summary/*_virus_summary.tsv"):
-            filename = file.rsplit('/',1)[-1].split('_virus_summary.tsv')[0]
-            with open(file,'r') as newfile:
-                for line in newfile.readlines():
-                    if not line.startswith('seq_name'):
-                        contig = line.split('\t')[0]
-                        taxa = line.split('\t')[10].split('\n')[0]         
-                        taxonomy_contig_file_ddict[taxa].append([contig, filename])
+def read_genomad_taxref(base_dir: str):
+    base_path = Path(base_dir)
+    taxonomy_ddict = defaultdict(list)
+    ref_path = base_path / "results/genomad/orig/genomad_file_contig_taxonomy.tsv"
+    with ref_path.open() as file:
+        for line in file:
+            if line.startswith("seq_name"):
+                continue
+            filename, contig, taxa = line.strip().split('\t')
+            taxonomy_ddict[taxa].append([contig, filename])
+    return taxonomy_ddict
 
-                        ref_file.write(str(filename) + '\t' + str(contig) + '\t' + str(taxa) + '\n')
+def extract_taxa_assembly(base_dir: str, taxonomy_ddict, taxa: str):
+    base_path = Path(base_dir)
+    processed_contigs = set()
+    processed_proteins = set()
 
-    return taxonomy_contig_file_ddict
+    for key, val_list in taxonomy_ddict.items():
+        if taxa not in key:
+            continue
+        for contig, filename in val_list:
+            fna_path = base_path / f"orig_assembly/{filename}.fna"
+            faa_path = base_path / f"results/genomad/orig/{filename}_summary/{filename}_virus_proteins.faa"
+            out_fna = base_path / f"results/assembly/{taxa}/fna/{filename}.fna"
+            out_faa = base_path / f"results/assembly/{taxa}/faa/{filename}.faa"
 
-#___________________________________
+            with out_fna.open('a') as fna_out:
+                for record in SeqIO.parse(fna_path, 'fasta'):
+                    if contig in record.id and record.id not in processed_contigs:
+                        processed_contigs.add(record.id)
+                        fna_out.write(f">{record.id}\n{record.seq}\n")
 
-def read_genomad_taxref(base_dir):
-    taxonomy_contig_file_ddict = defaultdict(list)
-    with open(f"{base_dir}/results/genomad/orig/genomad_file_contig_taxonomy.tsv",'r') as file:
-        for line in file.readlines():
-            if not line.startswith('seq_name'):
-                filename = line.split('\t')[0]
-                contig = line.split('\t')[1]
-                taxa = line.split('\t')[2].split('\n')[0]
-    
-                taxonomy_contig_file_ddict[taxa].append([contig, filename])
-    
-    return taxonomy_contig_file_ddict
+            with out_faa.open('a') as faa_out:
+                for record in SeqIO.parse(faa_path, 'fasta'):
+                    if contig in record.id.rsplit('_', 1)[0] and record.id not in processed_proteins:
+                        processed_proteins.add(record.id)
+                        faa_out.write(f">{record.id}\n{record.seq}\n")
 
-#___________________________________
+def run_checkv(base_dir: str, checkv_db: str, taxa: str):
+    base_path = Path(base_dir)
+    input_fna = base_path / f"results/assembly/{taxa}/fna"
+    combined_fna = base_path / f"results/checkv/{taxa}/prnav_combined.fna"
+    output_dir = base_path / f"results/checkv/{taxa}/results"
+    combine_cmd = f"cat {input_fna}/*.fna > {combined_fna}"
+    run_process(combine_cmd)
+    checkv_cmd = f"checkv end_to_end {combined_fna} {output_dir} -d {checkv_db} -t 16"
+    run_process(checkv_cmd)
 
-def extract_taxa_assembly(base_dir, taxonomy_contig_file_ddict, taxa):
+def get_genomestats(base_dir: str, taxa: str):
+    base_path = Path(base_dir)
 
-    def extract_fna(file, newfile, contig):
-        for record in SeqIO.parse(file,'fasta'):
-            if contig in record.id.strip():
-                if not record.id.strip() in processed_contigs:
-                    processed_contigs.append(record.id.strip())
-                    newfile.write('>' + str(record.id.strip()) + '\n' + str(record.seq) + '\n')
-            
-    def extract_faa(file, newfile, contig):
-        for record in SeqIO.parse(file,'fasta'):
-            if contig in record.id.rsplit('_',1)[0].strip():
-                if not record.id.split() in processed_proteins:
-                    processed_proteins.append(record.id.strip())
-                    newfile.write('>' + str(record.id.strip()) + '\n' + str(record.seq) + '\n')
-    
-    processed_contigs = []
-    processed_proteins = []
-    for key,val in taxonomy_contig_file_ddict.items():
-        if taxa in key:
-            for i in range(len(val)):
-
-                #accessing assembly files
-                fna = f"{base_dir}/orig_assembly/{val[i][1]}.fna"
-                faa = f"{base_dir}/results/genomad/orig/{val[i][1]}_summary/{val[i][1]}_virus_proteins.faa"
-            
-                #newfiles
-                fna_file_path = os.path.join(f"{base_dir}/results/assembly/{taxa}/fna", f"{val[i][1]}.fna")
-                faa_file_path = os.path.join(f"{base_dir}/results/assembly/{taxa}/faa", f"{val[i][1]}.faa")
-    
-                with open(fna_file_path, 'a') as newfile:
-                    extract_fna(fna, newfile, val[i][0])
-            
-                with open(faa_file_path, 'a') as newfile:
-                    extract_faa(faa, newfile, val[i][0])
-
-#_________________________________________
-
-def run_checkv(base_dir, checkv_db, taxa):
-
-    combine_fna = f"cat {base_dir}/results/assembly/{taxa}/fna/*.fna > {base_dir}/results/checkv/{taxa}/prnav_combined.fna"
-    print(combine_fna)
-    run_process(combine_fna)
-    checkv = f"checkv end_to_end {base_dir}/results/checkv/{taxa}/prnav_combined.fna {base_dir}/results/checkv/{taxa}/results -d {checkv_db} -t 16"
-    print(checkv)
-    run_process(checkv)
-
-#___________________________________
-
-def get_genomestats(base_dir, taxa):
-    
     def calculate_stats(fnarecord, faarecord):
+        bplen = len(fnarecord.seq)
+        gc_count = fnarecord.seq.upper().count('G') + fnarecord.seq.upper().count('C')
+        aalen = len(faarecord.seq)
+        gc_content = format((gc_count / bplen) * 100, ".2f") if bplen else '0.00'
+        coding_density = format((aalen * 3 / bplen) * 100, ".2f") if bplen else '0.00'
+        return [bplen, gc_content, coding_density]
 
-        gc_count = 0
-        bplen = 0
-        aalen = 0
-        
-        gc_count += fnarecord.seq.upper().count('G') + fnarecord.seq.upper().count('C')
-        bplen += len(fnarecord.seq)
-        if bplen == 0:
-            pass
-        
-        aalen += len(faarecord.seq)
-            
-        return [bplen, format(gc_count/bplen*100, ".2f"), format(aalen*3/bplen*100, ".2f")]
-    
-    genomestats_dict = defaultdict(list)
-    for faa in glob.glob(f"{base_dir}/results/assembly/{taxa}/faa/*.faa"):
-        assembly = faa.split('/')[-1].split('.faa')[0]
-        fna = f"{base_dir}/results/assembly/{taxa}/fna/{assembly}.fna"
-        for fnarecord in SeqIO.parse(fna,'fasta'):
-            for faarecord in SeqIO.parse(faa,'fasta'):
-                if faarecord.id.rsplit('_',1)[0] in fnarecord.id:
-                    genomestats_dict[fnarecord.id] = calculate_stats(fnarecord, faarecord)
-    
-    genomestats_df = pd.DataFrame.from_dict(genomestats_dict, columns=['bplen', 'gc_content', 'coding_density'], orient='index') 
-    genomestats_df = genomestats_df.reset_index()
-    genomestats_df.columns = ['contig', 'bplen', 'gc_content', 'coding_density']
+    stats_dict = defaultdict(list)
+    faa_dir = base_path / f"results/assembly/{taxa}/faa"
+    for faa_file in faa_dir.glob("*.faa"):
+        assembly = faa_file.stem
+        fna_file = base_path / f"results/assembly/{taxa}/fna/{assembly}.fna"
+        if not fna_file.exists():
+            continue
+        for fnarecord in SeqIO.parse(fna_file, 'fasta'):
+            for faarecord in SeqIO.parse(faa_file, 'fasta'):
+                if faarecord.id.rsplit('_', 1)[0] in fnarecord.id:
+                    stats_dict[fnarecord.id] = calculate_stats(fnarecord, faarecord)
 
-    checkv_df = pd.read_csv(f"{base_dir}/results/checkv/{taxa}/results/quality_summary.tsv", sep='\t')
-    genomestats_df['checkv_quality'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.checkv_quality))).fillna('unknown')
-    genomestats_df['checkv_completeness'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.completeness))).fillna('unknown')
-    genomestats_df['checkv_contamination'] = genomestats_df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.contamination))).fillna('unknown')
-    genomestats_df.to_csv(f"{base_dir}/results/stats/prnav_genomestats_{taxa}.csv", index=None)
+    df = pd.DataFrame.from_dict(stats_dict, orient='index', columns=['bplen', 'gc_content', 'coding_density']).reset_index()
+    df.rename(columns={'index': 'contig'}, inplace=True)
 
-#____________________________________
+    checkv_path = base_path / f"results/checkv/{taxa}/results/quality_summary.tsv"
+    if checkv_path.exists():
+        checkv_df = pd.read_csv(checkv_path, sep='\t')
+        df['checkv_quality'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.checkv_quality))).fillna('unknown')
+        df['checkv_completeness'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.completeness))).fillna('unknown')
+        df['checkv_contamination'] = df['contig'].map(dict(zip(checkv_df.contig_id, checkv_df.contamination))).fillna('unknown')
 
-genomad_db = './genomad_db'
-checkv_db = './checkv-db-v1.5'
+    df.to_csv(base_path / f"results/stats/prnav_genomestats_{taxa}.csv", index=False)
 
 @app.command()
-def main(base_dir: str = typer.Option(..., '-in', help="base directory where all subdirectories will be created"),
-         target_taxa: str = typer.Option(..., '-taxa', help="target taxa selected for analysis")):
+def main(
+    base_dir: str = typer.Option(..., '-in', help="Base directory where all subdirectories will be created"),
+    target_taxa: str = typer.Option(..., '-taxa', help="Target taxa selected for analysis")
+):
     create_taxa_subdirs(base_dir, target_taxa)
-    run_ncbi_checkv(base_dir, checkv_db)
-    run_ncbi_genomad(base_dir, genomad_db, target_taxa)
+    run_ncbi_checkv(base_dir, './checkv-db-v1.5')
+    run_ncbi_genomad(base_dir, './genomad_db', target_taxa)
     process_ncbi_genomad(base_dir)
     get_ncbi_genomestats(base_dir)
     append_ncbi_descrip(base_dir)
-    run_genomad(base_dir, genomad_db, target_taxa)
-    taxonomy_contig_file_ddict = process_genomad(base_dir, target_taxa)
-    taxonomy_contig_file_ddict = read_genomad_taxref(base_dir)
-    extract_taxa_assembly(base_dir, taxonomy_contig_file_ddict, target_taxa)
-    run_checkv(base_dir, checkv_db, target_taxa)
+    run_genomad(base_dir, './genomad_db', target_taxa)
+    taxonomy_ddict = process_genomad(base_dir, target_taxa)
+    taxonomy_ddict = read_genomad_taxref(base_dir)
+    extract_taxa_assembly(base_dir, taxonomy_ddict, target_taxa)
+    run_checkv(base_dir, './checkv-db-v1.5', target_taxa)
     get_genomestats(base_dir, target_taxa)
 
 if __name__ == "__main__":
