@@ -1,0 +1,13 @@
+name: phylotree
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python  =3.11
+  - typer   >=0.9
+  - pandas  >=2.2
+  - biopython
+  - hmmer          # hmmsearch
+  - mafft
+  - trimal
+  - iqtree

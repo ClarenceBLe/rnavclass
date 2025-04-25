@@ -1,0 +1,13 @@
+name: detection
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python =3.11
+  - typer  >=0.9
+  - pandas >=2.2
+  - biopython
+  # command-line tools used by the script
+  - checkv      # viral quality checker
+  - genomad     # virus/host classifier
+  - hmmer       # brings `hmmsearch` (genomad uses it)

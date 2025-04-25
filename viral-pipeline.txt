@@ -1,0 +1,10 @@
+viral-pipeline/
+├── bin/                        # your three Python entry-points
+│   ├── 01detection.py
+│   ├── 02phylotree.py
+│   └── 03decorate.py
+├── envs/                       # Conda environment specs
+│   ├── env_detection.yml
+│   ├── env_phylotree.yml
+│   └── env_decorate.yml
+└── main.nf                     # Nextflow workflow (DSL 2)
