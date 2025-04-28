@@ -123,9 +123,9 @@ def get_ncbi_genomestats(base_dir: str):
 
 def append_ncbi_descrip(base_dir: str):
     base_path = Path(base_dir)
-    batch_file = base_path / "resources/db/ncbi_jan2024/genbank_accession_batch_entrez.csv"
-    taxa_file = base_path / "resources/db/ncbi_jan2024/genomad_contig_taxonomy_ref.txt"
-    stats_file = base_path / "resources/db/ncbi_jan2024/ncbi_genomestats.csv"
+    batch_file = base_path / "ncbi/genbank_accession_batch_entrez.csv"
+    taxa_file = base_path / "ncbi/genomad_contig_taxonomy_ref.txt"
+    stats_file = base_path / "ncbi/ncbi_genomestats.csv"
 
     batch_df = pd.read_csv(batch_file)
     taxa_df = pd.read_csv(taxa_file, sep='\t')
