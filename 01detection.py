@@ -182,8 +182,6 @@ def read_genomad_taxref(base_dir: str):
             if line.startswith("seq_name"):
                 continue
             filename, contig, taxa = line.strip().split('\t')
-            print(f"filename: {filename}")
-            print(f"taxa: {taxa}")
             taxonomy_ddict[taxa].append([contig, filename])
     return taxonomy_ddict
 
@@ -194,14 +192,10 @@ def extract_taxa_assembly(base_dir: str, taxonomy_ddict, taxa: str):
     processed_proteins = set()
 
     for key, val_list in taxonomy_ddict.items():
-        print(f"taxa: {key}")
-        print(f"value list: {val_list}")
         if taxa not in key:
             continue
         for contig, filename in val_list:
             filename = filename.split("_summary")[0]
-            print(f"contig: {contig}")
-            print(f"filename: {filename}")
             fna_path = base_path / f"results/genomad/orig/{filename}_summary/{filename}_virus.fna"
             faa_path = base_path / f"results/genomad/orig/{filename}_summary/{filename}_virus_proteins.faa"
             out_fna = base_path / f"results/assembly/{taxa}/fna/{filename}.fna"
@@ -220,11 +214,8 @@ def extract_taxa_assembly(base_dir: str, taxonomy_ddict, taxa: str):
                         faa_out.write(f">{record.id}\n{record.seq}\n")
 
 def run_checkv(base_dir: str, checkv_db: str, taxa: str):
-    print("running run_checkv.")
     base_path = Path(base_dir)
-    print(f"base_path: {base_path}")
     input_fna = base_path / f"results/assembly/{taxa}/fna"
-    print(f"input_fna: {input_fna}")
     combined_fna = base_path / f"results/checkv/{taxa}/prnav_combined.fna"
     output_dir = base_path / f"results/checkv/{taxa}/results"
     combine_cmd = f"cat {input_fna}/*.fna > {combined_fna}"
