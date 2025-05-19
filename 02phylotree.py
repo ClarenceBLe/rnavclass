@@ -144,17 +144,32 @@ def extract_viral_assembly(base_dir, taxa, taxref):
                                 seen_proteins.add(record.id)
 
 # Add NCBI proteins to viral assemblies
-def add_ncbi_taxa(base_dir, taxa):
-    df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
-    ncbi_proteins = set(df[(~df['protein'].str.startswith('LKH')) & df['taxonomy'].str.contains(taxa)]['protein'])
-    seen = set()
-    for faa_file in glob.glob(f"{base_dir}/resources/db/ncbi_jan2024/ncbi_faa/*.faa"):
-        for record in SeqIO.parse(faa_file, 'fasta'):
-            if record.id in ncbi_proteins and record.id not in seen:
-                seen.add(record.id)
-                out_path = os.path.join(base_dir, f"results/viral_assembly/{taxa}/faa/ncbi_{record.id}.faa")
-                with open(out_path, 'a') as f:
-                    SeqIO.write(record, f, 'fasta')
+def add_ncbi_taxa(base_dir, target_taxa, genbank_proteins):
+    tax_path = os.path.join(base_dir, "ncbi", "genbank_riboviria_batch_taxonomy.tsv")
+    df = pd.read_csv(tax_path, sep="\t", usecols=["accession", "ncbi_taxonomy"], dtype=str)
+    accessions_with_target = set(df.loc[df["ncbi_taxonomy"].str.contains(target_taxa, na=False), "accession"])
+
+    proteins_of_interest = {
+        p for p in genbank_proteins if p.split("_", 1)[0] in accessions_with_target
+    }
+
+    faa_dir = os.path.join(base_dir, "results", "viral_assembly", target_taxa, "faa")
+    if os.path.exists(faa_dir) and not os.path.isdir(faa_dir):
+        raise NotADirectoryError(f"Expected a directory at {faa_dir!r}, but found a file.")
+
+    os.makedirs(faa_dir, exist_ok=True)
+    faa_file = os.path.join(faa_dir, "genbank_proteins.faa")
+    if os.path.isdir(faa_file):
+        raise IsADirectoryError(f"{faa_file!r} exists as a directory; remove or rename it first.")
+
+    written = set()
+    with open(faa_file, "w") as out_fh:
+        for src_path in glob.glob(os.path.join(base_dir, "GCA", "*proteins.faa")):
+            for record in SeqIO.parse(src_path, "fasta"):
+                if record.id in proteins_of_interest and record.id not in written:
+                    SeqIO.write(record, out_fh, "fasta")
+                    written.add(record.id)
+    return faa_file
 
 # Remove duplicate proteins from combined set
 def remove_duplicates(base_dir, taxa):
