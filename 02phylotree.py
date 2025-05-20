@@ -53,7 +53,7 @@ def read_genomad_taxref(base_dir):
 
 # Run HMMER search on protein fasta files
 def run_hmm(base_dir, rdrp_db):
-    faa_files = glob.glob(f"{base_dir}/results/genomad/orig/*_summary/*_proteins.faa")
+    faa_files = glob.glob(f"{base_dir}/results/genomad/*/*_summary/*_proteins.faa")
     for faa in faa_files:
         assembly = os.path.basename(faa).split('_proteins.faa')[0]
         out_path = f"{base_dir}/results/hmm/{assembly}.out"
@@ -113,6 +113,17 @@ def process_hmmout_maxscore(base_dir, hits_ddict, contig_taxonomy_dict):
     df.to_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv", index=False)
     return df
 
+# Get list of NCBI GenBank proteins with hmm-hits
+def get_genbank_proteins(base_dir, contig_taxonomy_dict):
+
+    genbank_proteins = []
+    for file in glob.glob(f"{base_dir}/GCA/*proteins.faa"):
+        for record in SeqIO.parse(file, 'fasta'):
+            if not record.id in genbank_proteins:
+                genbank_proteins.append(record.id.split()[0])
+
+    return genbank_proteins
+
 # Extract relevant viral contigs and proteins to new FASTA files
 def extract_viral_assembly(base_dir, taxa, taxref):
     max_df = pd.read_csv(f"{base_dir}/results/stats/processed_hmmout_maxscore.csv")
@@ -126,8 +137,9 @@ def extract_viral_assembly(base_dir, taxa, taxref):
     for taxa_name, records in taxref.items():
         if taxa in taxa_name:
             for contig, filename in records:
+                filename = filename.split('_summary')[0]
                 if contig in viral_contigs:
-                    fna_in = os.path.join(base_dir, f"orig_assembly/{filename}.fna")
+                    fna_in = os.path.join(base_dir, f"query/{filename}.fna")
                     faa_in = os.path.join(base_dir, f"results/assembly/{taxa}/faa/{filename}.faa")
                     fna_out = os.path.join(base_dir, f"results/viral_assembly/{taxa}/fna/{filename}.fna")
                     faa_out = os.path.join(base_dir, f"results/viral_assembly/{taxa}/faa/{filename}.faa")
@@ -156,7 +168,7 @@ def add_ncbi_taxa(base_dir, target_taxa, genbank_proteins):
     faa_dir = os.path.join(base_dir, "results", "viral_assembly", target_taxa, "faa")
     if os.path.exists(faa_dir) and not os.path.isdir(faa_dir):
         raise NotADirectoryError(f"Expected a directory at {faa_dir!r}, but found a file.")
-
+    
     os.makedirs(faa_dir, exist_ok=True)
     faa_file = os.path.join(faa_dir, "genbank_proteins.faa")
     if os.path.isdir(faa_file):
@@ -191,7 +203,7 @@ def treebuild_phylotree(base_dir, taxa):
 
     mafft_cmd = f"mafft --auto {combined_faa} > {aligned_faa}"
     trimal_cmd = f"trimal -in {aligned_faa} -out {trimmed_faa} -gt 0.1"
-    iqtree_cmd = f"iqtree -s {trimmed_faa} -m LG+G -alrt 1000 -bb 1000 -nt AUTO"
+    iqtree_cmd = f"iqtree -s {trimmed_faa} -m LG4X -alrt 1000 -bb 1000 -nt AUTO"
 
     print("Running MAFFT alignment...")
     run_process(mafft_cmd)
@@ -230,7 +242,7 @@ def make_itol_annotations(base_dir, taxa):
 # Perform clustering-based extraction of cluster representatives and build reduced trees
 def process_clustrep(base_dir, taxa, cutoffs):
     for cutoff in cutoffs:
-        cluster_file = os.path.join(base_dir, f"results/treebuild_reduced/{taxa}/cluster_clusters_withsingletons/cluster_{cutoff}.txt")
+        cluster_file = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/cluster_clusters_withsingletons/cluster_{cutoff}.txt")
         output_faa = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/prnav_combined_{cutoff}.faa")
         itol_cluster = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/itol_clustrep_{cutoff}.txt")
         itol_colors = os.path.join(base_dir, f"results/clustrep_treebuild/{taxa}/itol_extended_branchcolor_{cutoff}.txt")
@@ -285,15 +297,17 @@ def process_clustrep(base_dir, taxa, cutoffs):
 def main(base_dir: str = typer.Option(..., "-in", help="Base directory"),
          target_taxa: str = typer.Option(..., "-taxa", help="Target taxa for analysis")):
 
-    rdrp_db = '/global/cfs/cdirs/nelli/shared/01databases/rnav/RVMT_All_RdRP_combined_March2022.hmm'
+    rdrp_db = './rdrp.hmm'
 
     create_taxa_subdirs(base_dir, target_taxa)
     taxonomy_contig_file_ddict, contig_taxonomy_dict = read_genomad_taxref(base_dir)
     run_hmm(base_dir, rdrp_db)
     hits_ddict, hits_all_df = process_hmmout_all(base_dir, contig_taxonomy_dict)
     hits_max_df = process_hmmout_maxscore(base_dir, hits_ddict, contig_taxonomy_dict)
+    genbank_proteins = get_genbank_proteins(base_dir, contig_taxonomy_dict) 
     extract_viral_assembly(base_dir, target_taxa, taxonomy_contig_file_ddict)
-    add_ncbi_taxa(base_dir, target_taxa)
+    add_ncbi_taxa(base_dir, target_taxa, genbank_proteins)
+    genbank_refs = add_ncbi_taxa(base_dir, target_taxa, genbank_proteins)
     remove_duplicates(base_dir, target_taxa)
     treebuild_phylotree(base_dir, target_taxa)
     make_itol_annotations(base_dir, target_taxa)

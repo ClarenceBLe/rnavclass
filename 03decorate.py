@@ -26,7 +26,7 @@ def create_taxa_subdirs(base_dir: str, taxa: str):
         typer.echo(f"Created: {path}")
     typer.echo("Finished creating directories.")
 
-def make_heatmap_itolanno(base_dir: str, taxa: str, outgroup: str):
+def make_heatmap_itolanno(base_dir: str, taxa: str):
     """Generate heatmap matrix and call countmatrix2itol script."""
     input_csv = os.path.join(base_dir, "results", "stats", "processed_hmmout_ALL.csv")
     output_path = os.path.join(base_dir, "results", "treebuild", taxa, "hmmout_bitscore_matrix.csv")
@@ -80,7 +80,7 @@ def make_host_itolanno(base_dir: str, df: pd.DataFrame):
 
 def combine_genomestats(base_dir: str, taxa: str):
     """Merge genome statistics and create iTOL bar charts."""
-    ref_csv = os.path.join(base_dir, "resources", "db", "ncbi_jan2024", "ncbi_genomestats.csv")
+    ref_csv = os.path.join(base_dir, "ncbi", "genbank_riboviria_genomestats.csv")
     taxa_csv = os.path.join(base_dir, "results", "stats", f"prnav_genomestats_{taxa}.csv")
     hmm_csv = os.path.join(base_dir, "results", "stats", "processed_hmmout_maxscore.csv")
 
@@ -110,13 +110,13 @@ def combine_genomestats(base_dir: str, taxa: str):
 
 def make_branchlabels(base_dir: str, taxa: str):
     """Add branch labels for phylogenetic trees in iTOL."""
-    batch_csv = os.path.join(base_dir, "resources", "db", "ncbi_jan2024", "genbank_accession_batch_entrez.csv")
+    batch_csv = os.path.join(base_dir, "ncbi", "genbank_riboviria_batch_taxonomy.tsv")
     stats_csv = os.path.join(base_dir, "results", "stats", f"prnav_production_genomestats_{taxa}.csv")
     output_file = os.path.join(base_dir, "results", "clustrep_treebuild", taxa, "itol_branchlabels.txt")
 
-    batch_df = pd.read_csv(batch_csv)
+    batch_df = pd.read_csv(batch_csv, sep='\t')
     stats_df = pd.read_csv(stats_csv)
-    organism_map = dict(zip(batch_df['accession'], batch_df['organism']))
+    organism_map = dict(zip(batch_df['accession'], batch_df['ncbi_taxonomy']))
     stats_df['viral_organism'] = stats_df['contig'].map(organism_map).fillna('unknown')
     stats_df['prod_branchlabel'] = stats_df['branch_label'] + '|' + stats_df['viral_organism']
 
@@ -127,14 +127,13 @@ def make_branchlabels(base_dir: str, taxa: str):
 
 @app.command()
 def main(
-    base_dir: str = typer.Option(..., "--in", help="Base directory of the pipeline"),
-    target_taxa: str = typer.Option(..., "--taxa", help="Target taxa for analysis"),
-    outgroup: str = typer.Option(..., "--outgroup", help="Outgroup taxa for comparison")
+    base_dir: str = typer.Option(..., "-in", help="Base directory of the pipeline"),
+    target_taxa: str = typer.Option(..., "-taxa", help="Target taxa for analysis")
 ):
     create_taxa_subdirs(base_dir, target_taxa)
-    make_heatmap_itolanno(base_dir, target_taxa, outgroup)
-    hmm_maxscore_df = append_host(base_dir)
-    make_host_itolanno(base_dir, hmm_maxscore_df)
+    make_heatmap_itolanno(base_dir, target_taxa)
+    #hmm_maxscore_df = append_host(base_dir)
+    #make_host_itolanno(base_dir, hmm_maxscore_df)
     combine_genomestats(base_dir, target_taxa)
     make_branchlabels(base_dir, target_taxa)
 

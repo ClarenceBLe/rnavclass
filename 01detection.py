@@ -182,20 +182,25 @@ def read_genomad_taxref(base_dir: str):
             if line.startswith("seq_name"):
                 continue
             filename, contig, taxa = line.strip().split('\t')
+            print(f"filename: {filename}")
+            print(f"taxa: {taxa}")
             taxonomy_ddict[taxa].append([contig, filename])
     return taxonomy_ddict
 
 def extract_taxa_assembly(base_dir: str, taxonomy_ddict, taxa: str):
-    print("running extract_taxa_assembly.")
     base_path = Path(base_dir)
     processed_contigs = set()
     processed_proteins = set()
 
     for key, val_list in taxonomy_ddict.items():
+        print(f"taxa: {key}")
+        print(f"value list: {val_list}")
         if taxa not in key:
             continue
         for contig, filename in val_list:
             filename = filename.split("_summary")[0]
+            print(f"contig: {contig}")
+            print(f"filename: {filename}")
             fna_path = base_path / f"results/genomad/orig/{filename}_summary/{filename}_virus.fna"
             faa_path = base_path / f"results/genomad/orig/{filename}_summary/{filename}_virus_proteins.faa"
             out_fna = base_path / f"results/assembly/{taxa}/fna/{filename}.fna"
