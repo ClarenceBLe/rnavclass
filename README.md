@@ -15,9 +15,21 @@ pixi install
 genomad download-database .
 checkv download_database ./
 ```
-* Unzip NCBI GenBank Riboviria and RdRp HMM-models in terminal
+* Option 1: Download RNA-dependent RNA-polymerase (RdRp) profile hidden Markov models (HMMs)
+* Save in rnavclass repository as 'rdrp.hmm'
+```
+https://riboviria.org/#download
+```
+* Option 2: Copy 'rdrp.hmm' file from repository--https://github.com/NeLLi-team/rnavclass/blob/main/rdrp.hmm.zip
+* Unzip rdrp.hmm.zip
 ```
 unzip rdrp.hmm.zip
+```
+* Option 1: Download NCBI GenBank Riboviria references
+* Save in rnavclass repository inside sub-directory 'GCA/'
+* Option 2: Copy 'GCA.zip' file from repository--https://github.com/NeLLi-team/rnavclass/blob/main/GCA.zip
+* Unzip GCA.zip in rnavclass repository
+```
 unzip GCA.zip
 ```
 * To use rnavclass, store all query nucleotide (fasta) files in the 'query/' directory
