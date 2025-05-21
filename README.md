@@ -1,41 +1,47 @@
 # rnavclass
-* Identify RNA viruses in environmental sequence dataset and place in reference species tree
+* Identify RNA viruses in environmental seuqence dataset and place in reference species tree
 ## How to run it
-* Create conda env
+* Clone GitHub repository
 ```
-cd rnavclass 
-conda env create --name workflow --file=workflow.yaml
-conda activate workflow
-checkv download_database .
+git clone https://github.com/ClarenceBLe/rnavclass.git
+cd rnavclass
+```
+* Create pixi environment based on pixi.toml
+```
+pixi install
+```
+* Download geNomad and CheckV databases
+```
 genomad download-database .
+checkv download_database ./
 ```
-* Download RdRp models into rnavclass/ directory
+* Unzip NCBI GenBank Riboviria and RdRp HMM-models in terminal
 ```
-https://riboviria.org/#download
+unzip rdrp.hmm.zip
+unzip GCA.zip
 ```
-* Run 01detection.py
+* To use rnavclass, store all query nucleotide (fasta) files in the 'query/' directory
+* Select target taxa to assess--example assesses Ghabrivirales 
+* Option 1: Run 01detection.py, 02phylotree.py, and 03decorate.py individually
 ```
-python 01detection.py -in </path/to/base/directory> -taxa <selected taxa>
-i.e. python 01detection.py -in . -taxa Riboviria
+pixi run python 01detection.py -in . -taxa Ghabrivirales
+pixi run python 02phylotree.py -in . -taxa Ghabrivirales
+pixi run python 03decorate.py -in . -taxa Ghabrivirales
 ```
-* Run 02phylotree.py
+* Option 2: Automatically run all scripts using single run_rnavclass.bash script
+* Edit run_rnavclass.bash to select target taxa--example assesses Ghabrivirales
 ```
-python 02phylotree.py -in </path/to/base/directory> -taxa <selected taxa>
-i.e. python 02phylotree.py -in . -taxa Riboviria
-```
-* Run 03decorate.py
-```
-python 03decorate.py -in </path/to/base/directory> -taxa <selected taxa> -outgroup <outgroup taxa>
-i.e. python 03decorate.py -in . -taxa Riboviria -outgroup Nidovirales
+chmod +x run_rnavclass.bash
+./run_rnavclass.bash
 ```
  
 ## Summary of the pipeline
 * Filters query nucleotide (fna) sequences for bplen>=1,000 and average read-depth>=1.0 (if available, e.g. through spades contig ids)
 * Performs gene-calling for filtered query sequences and provides taxonomic classification using geNomad
-* Viral protein sequences are screened for RdRp marker genes using profile hidden Markov model (HMM)
+* Viral protein sequences screened for RdRp marker genes using profile hidden Markov model (HMM)
 * CheckV used to assess completeness, contamination, and quality
-* Genome stats (genome size, GC%, coding density) of identified RNA viruses are combined with CheckV and geNomad output 
+* Genome statistics (genome size, GC%, coding density) of identified RNA viruses are combined with CheckV and geNomad output 
 * Based on provided Riboviria sublineage, identified viruses are combined with matching NCBI references for alignment and phylogenetic tree construction
-* Identified RNA viruses (faa) are aligned using MAFFT, trimmed with TRIMAL, phylogenies constructed with IQTree, and PhyloDM clustered for dereplication
+* Identified RNA viruses (faa) are aligned using MAFFT, trimmed with trimAl, phylogenies constructed with IQTree, and PhyloDM clustered for dereplication
 * Final tree is built from representative taxa
-* Corresponding iTOL metadata files are created so that trees can be visualized in an informative way in iTOL
+* Corresponding iTOL metadata files are created so trees can be visualized in an informative way 
